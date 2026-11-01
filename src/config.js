@@ -130,7 +130,7 @@ export const socialLinks = [
 export const siteLinks = [
   {
     name: "FQhub",
-    desc: "blog.example.com",
+    desc: "导航站",
     icon: "star",
     url: "https://nav.fqhub.dpdns.org/",
   },
