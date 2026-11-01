@@ -70,13 +70,49 @@ const items = ref([]);
 const loading = ref(true);
 const failed = ref(false);
 
+// Memos 详情页路由随版本变化：
+//  - v0.24 之前：/m/{uid}
+//  - v0.24 及之后（含 v1.x）：/memos/{uid}
+// 通过实例 profile 接口识别版本，自动选择可用路由
+const NEW_ROUTE_SINCE_MINOR = 24;
+
+function parseVersion(v) {
+  const m = String(v || "").match(/(\d+)\.(\d+)/);
+  return m ? [Number(m[1]), Number(m[2])] : null;
+}
+
+async function detectMemoRoute(signal) {
+  const endpoints = [
+    { path: "instance/profile", route: "memos" },
+    { path: "workspace/profile", route: "m" },
+  ];
+  for (const { path, route } of endpoints) {
+    try {
+      const res = await fetch(`${memosBase.value}/api/v1/${path}`, {
+        signal,
+        headers: { Accept: "application/json" },
+      });
+      if (!res.ok) continue;
+      const version = parseVersion((await res.json()).version);
+      if (!version) return route;
+      const [major, minor] = version;
+      return major > 0 || minor >= NEW_ROUTE_SINCE_MINOR ? "memos" : "m";
+    } catch {
+      // 该接口不可用则尝试下一个
+    }
+  }
+  // 无法识别时按当前版本路由兜底
+  return "memos";
+}
+
 // 与 Firefly 的动态一致：置顶优先，其余按发布时间从新到旧
-function toItem(memo) {
-  const id = String(memo.name || memo.id || "").split("/").pop();
+function toItem(memo, route) {
   const time = Date.parse(memo.createTime || memo.displayTime || "") || 0;
+  const uid = String(memo.name || memo.id || "").split("/").pop();
+  const id = uid || `memo-${time}`;
   const attachments = Array.isArray(memo.attachments) ? memo.attachments : [];
   return {
-    id: id || `memo-${time}`,
+    id,
     time,
     datetime: time ? new Date(time).toISOString() : "",
     text: plainText(memo.content),
@@ -84,7 +120,7 @@ function toItem(memo) {
     hasImage:
       /!\[[^\]]*\]\([^)]+\)/.test(memo.content || "") ||
       attachments.some((a) => String(a.type || "").startsWith("image/")),
-    link: id ? `${memosBase.value}/m/${id}` : memosBase.value,
+    link: uid ? `${memosBase.value}/${route}/${uid}` : memosBase.value,
   };
 }
 
@@ -106,15 +142,19 @@ async function fetchMemos(signal) {
   url.searchParams.set("pageSize", String(PAGE_SIZE));
   if (memosUser) url.searchParams.set("parent", memosUser);
 
-  const res = await fetch(url, { signal, headers: { Accept: "application/json" } });
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  const data = await res.json();
+  const [route, data] = await Promise.all([
+    detectMemoRoute(signal),
+    fetch(url, { signal, headers: { Accept: "application/json" } }).then((res) => {
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return res.json();
+    }),
+  ]);
 
   return (data.memos || [])
     .filter((m) => !m.state || m.state === "NORMAL")
     // ListMemos 的 parent 不一定真的按 creator 过滤，这里再兜一层
     .filter((m) => (memosUser ? m.creator === memosUser : true))
-    .map(toItem)
+    .map((m) => toItem(m, route))
     .sort((a, b) => b.pinned - a.pinned || b.time - a.time)
     .slice(0, limit);
 }
