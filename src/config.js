@@ -6,7 +6,7 @@ export const siteConfig = {
   // Logo 图标（可选）：留空 = 使用内置的「Z」徽章 SVG；
   // 填图片路径或 URL 即可整体替换（载入页、左上角、浏览器标签页 favicon 同步生效），
   // 例如 "/images/logo.png"（图片放 public/images/ 目录）或 "https://xxx.com/logo.png"
-  logo: "",
+  logo: "162.png",
   // 浏览器标签页标题
   pageTitle: "FQHome",
   // 问候语（简介卡片大标题）
