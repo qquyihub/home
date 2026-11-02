@@ -49,7 +49,7 @@ export const siteConfig = {
     apiUrl: "https://memos.fqhub.dpdns.org",
     // 只显示指定用户的动态（可选）：填 Memos 返回的 creator 标识，如 "users/yourname"；
     // 留空 = 显示所有公开动态。注意区分大小写，需与 API 返回的 creator 完全一致
-    parent: "users/neo",
+    parent: "users/now",
     // 卡片最多展示几条（置顶动态优先，其余按发布时间从新到旧）
     limit: 3,
   },
