@@ -108,7 +108,7 @@ function smoothPath(pts) {
   return d;
 }
 
-onMounted(async () => {
+onMounted(() => {
   // 30 分钟内直接用缓存，避免刷新必发请求
   try {
     const cached = JSON.parse(localStorage.getItem(CACHE_KEY) || "null");
@@ -120,11 +120,36 @@ onMounted(async () => {
     // 缓存解析失败则正常请求
   }
 
-  // 配置了固定城市直接用它；否则优先浏览器定位拿精确坐标（比 IP 定位准，不受 CDN/代理影响）
+  // 配置了固定城市直接用它
   const fixedAdcode = siteConfig.weatherCity || undefined;
-  if (fixedAdcode) return retryLoad(fixedAdcode);
-  retryLoad(await locateVisitorAdcode());
+  if (fixedAdcode) {
+    retryLoad(fixedAdcode);
+    return;
+  }
+
+  // 先按 IP 自动定位把天气卡点亮。浏览器定位需要授权，不能让它卡在首屏：
+  // 某些浏览器在定位被禁用/拒绝时会弹出权限框甚至不再回调，会拖住同批发出的
+  // 其它首屏请求（如公告卡的 Memos 接口），也导致天气一直空白
+  retryLoad(undefined);
+
+  // 等页面 load、首屏请求都发出去后，再后台尝试浏览器精确定位；
+  // 被拒绝 / 不支持 / 迟迟不回调都只影响这次精度升级，不影响任何卡片
+  upgradeWithGeolocation();
 });
+
+// 浏览器定位只做后台增强：拿到更精确的 adcode 后再重载一次天气
+function upgradeWithGeolocation() {
+  const tryLocate = () => {
+    locateVisitorAdcode().then((adcode) => {
+      if (adcode) load(adcode, true);
+    });
+  };
+  if (document.readyState === "complete") {
+    setTimeout(tryLocate, 800);
+  } else {
+    window.addEventListener("load", () => setTimeout(tryLocate, 800), { once: true });
+  }
+}
 
 // 首次加载失败则 3 秒后重试一次，仍然失败就保持隐藏，不阻塞页面
 async function retryLoad(adcode) {
@@ -135,12 +160,16 @@ async function retryLoad(adcode) {
 async function locateVisitorAdcode() {
   if (!("geolocation" in navigator)) return null;
   try {
-    const position = await new Promise((resolve, reject) => {
-      navigator.geolocation.getCurrentPosition(resolve, reject, {
-        timeout: 10000,
-        enableHighAccuracy: false,
-      });
-    });
+    // 个别浏览器在定位被系统/策略禁用时既不回调成功也不回调失败，补一层硬超时
+    const position = await Promise.race([
+      new Promise((resolve, reject) => {
+        navigator.geolocation.getCurrentPosition(resolve, reject, {
+          timeout: 8000,
+          enableHighAccuracy: false,
+        });
+      }),
+      new Promise((_, reject) => setTimeout(() => reject(new Error("geolocation timeout")), 8000)),
+    ]);
     const { latitude: lat, longitude: lng } = position.coords;
     const districtCtrl = new AbortController();
     setTimeout(() => districtCtrl.abort(), 8000);
@@ -158,8 +187,8 @@ async function locateVisitorAdcode() {
   }
 }
 
-async function load(adcode) {
-  if (weather.value) return true;
+async function load(adcode, force = false) {
+  if (weather.value && !force) return true;
   try {
     const ctrl = new AbortController();
     setTimeout(() => ctrl.abort(), 8000);
