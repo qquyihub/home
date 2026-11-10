@@ -164,17 +164,23 @@ onMounted(async () => {
     loading.value = false;
     return;
   }
-  try {
-    items.value = await cachedFetch({
-      key: `announce_memos:${memosBase.value}:${memosUser}`,
-      ttl: CACHE_MS,
-      loader: fetchMemos,
-    });
-  } catch {
-    failed.value = true;
-  } finally {
-    loading.value = false;
+  // 首次请求可能被浏览器权限弹窗（如定位授权）或网络抖动打断，失败后重试一次，
+  // 避免公告卡因为一次被打断的请求一直停在「加载失败」
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    try {
+      items.value = await cachedFetch({
+        key: `announce_memos:${memosBase.value}:${memosUser}`,
+        ttl: CACHE_MS,
+        loader: fetchMemos,
+      });
+      failed.value = false;
+      break;
+    } catch {
+      failed.value = true;
+      if (attempt === 1) await new Promise((r) => setTimeout(r, 800));
+    }
   }
+  loading.value = false;
 });
 
 // 近期用相对时间，更早的显示为日期
